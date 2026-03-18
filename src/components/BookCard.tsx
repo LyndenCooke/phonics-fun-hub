@@ -46,7 +46,6 @@ export default function BookCard({ book, onSelect }: BookCardProps) {
             src={book.coverImageUrl}
             alt={book.title}
             className="absolute inset-0 w-full h-full object-cover z-[1]"
-            style={{ objectPosition: 'center 8%' }}
           />
         ) : (
           <div className="relative z-[5] text-center px-2">
