@@ -1,14 +1,14 @@
 import Layout from '@/components/Layout';
 import { LEVELS } from '@/lib/types';
-import { ShoppingBag, Star, Sparkles } from 'lucide-react';
+import { BookOpen } from 'lucide-react';
 
 const products = [
-  { id: 'free', name: 'Free Sample', description: '1 book from Level 1', price: 'Free', badge: '🎁', featured: false },
-  { id: 'level-1', name: 'Level 1 Pack', description: 'All 10 Starting Stories books', price: '£9.99', badge: null, featured: false },
-  { id: 'level-2', name: 'Level 2 Pack', description: 'All books in Longer Sounds', price: '£9.99', badge: null, featured: false },
-  { id: 'starter', name: 'Starter Bundle', description: 'Levels 1–2 (all books)', price: '£16.99', badge: '⭐ Popular', featured: true },
-  { id: 'full', name: 'Full Bundle', description: 'All 32 books, Levels 1–6', price: '£49.99', badge: '🏆 Best Value', featured: true },
-  { id: 'subscription', name: 'Monthly Subscription', description: 'New books unlocked each month', price: '£4.99/mo', badge: null, featured: false },
+  { id: 'free', name: 'Free Sample', description: '1 book from Level 1', price: 'Free', badge: null, featured: false, bookCount: 1 },
+  { id: 'level-1', name: 'Level 1 Pack', description: 'All Starting Stories books', price: '£9.99', badge: null, featured: false, bookCount: 10 },
+  { id: 'level-2', name: 'Level 2 Pack', description: 'All Longer Sounds books', price: '£9.99', badge: null, featured: false, bookCount: 10 },
+  { id: 'starter', name: 'Starter Bundle', description: 'Levels 1–2, all books included', price: '£16.99', badge: 'Popular', featured: true, bookCount: 20 },
+  { id: 'full', name: 'Full Bundle', description: 'All 32 books, Levels 1–6', price: '£49.99', badge: 'Best Value', featured: true, bookCount: 32 },
+  { id: 'subscription', name: 'Monthly Plan', description: 'New books unlocked each month', price: '£4.99/mo', badge: null, featured: false, bookCount: null },
 ];
 
 const levelBgs: Record<number, string> = {
@@ -19,18 +19,24 @@ const levelBgs: Record<number, string> = {
 export default function Shop() {
   return (
     <Layout>
-      <div className="px-4 pt-4 pb-8 max-w-lg mx-auto">
-        <h2 className="text-xl font-bold text-foreground mb-1">Shop 🛒</h2>
+      <div className="px-4 pt-5 pb-8 max-w-lg mx-auto">
+        <h2 className="text-2xl font-extrabold text-foreground mb-1 tracking-tight">Shop</h2>
         <p className="text-sm text-muted-foreground mb-6">
           Choose the right pack for your child's reading journey.
         </p>
 
         {/* Level overview */}
-        <div className="grid grid-cols-3 gap-2 mb-6">
+        <div className="grid grid-cols-3 gap-2.5 mb-8">
           {LEVELS.map((level) => (
-            <div key={level.level} className={`${levelBgs[level.level]} text-white rounded-xl p-3 text-center`}>
-              <p className="text-lg font-bold">L{level.level}</p>
-              <p className="text-[10px] opacity-90 leading-tight">{level.name}</p>
+            <div
+              key={level.level}
+              className={`${levelBgs[level.level]} text-white rounded-xl p-3 text-center shadow-card relative overflow-hidden`}
+            >
+              <div className="absolute inset-0 bg-gradient-to-br from-white/15 to-black/10" />
+              <div className="relative">
+                <p className="text-xl font-extrabold">L{level.level}</p>
+                <p className="text-[10px] font-medium opacity-90 leading-tight mt-0.5">{level.name}</p>
+              </div>
             </div>
           ))}
         </div>
@@ -40,31 +46,37 @@ export default function Shop() {
           {products.map((product) => (
             <div
               key={product.id}
-              className={`rounded-2xl border-2 p-4 transition-all ${
+              className={`rounded-xl p-4 transition-all duration-200 shadow-card ${
                 product.featured
-                  ? 'border-primary bg-primary/5 shadow-sm'
-                  : 'border-border bg-card'
+                  ? 'border-2 border-primary bg-tint-pink'
+                  : 'border border-border bg-card'
               }`}
             >
-              <div className="flex items-start justify-between mb-2">
-                <div>
-                  <div className="flex items-center gap-2">
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
                     <h3 className="font-bold text-foreground">{product.name}</h3>
                     {product.badge && (
-                      <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-semibold">
+                      <span className="text-[10px] gradient-primary text-primary-foreground px-2 py-0.5 rounded-full font-bold shadow-sm">
                         {product.badge}
                       </span>
                     )}
                   </div>
-                  <p className="text-sm text-muted-foreground mt-0.5">{product.description}</p>
+                  <p className="text-sm text-muted-foreground">{product.description}</p>
+                  {product.bookCount && (
+                    <div className="flex items-center gap-1 mt-1.5">
+                      <BookOpen className="w-3 h-3 text-muted-foreground" />
+                      <span className="text-[10px] font-medium text-muted-foreground">{product.bookCount} books</span>
+                    </div>
+                  )}
                 </div>
-                <span className="text-lg font-bold text-foreground whitespace-nowrap">{product.price}</span>
+                <span className="text-xl font-extrabold text-foreground whitespace-nowrap ml-3">{product.price}</span>
               </div>
               <button
-                className={`w-full py-2.5 rounded-xl font-semibold text-sm transition-all active:scale-[0.98] ${
+                className={`w-full py-3 rounded-lg font-bold text-sm transition-all duration-200 active:scale-[0.97] ${
                   product.id === 'free'
-                    ? 'bg-muted text-foreground'
-                    : 'bg-primary text-primary-foreground'
+                    ? 'bg-card border-2 border-primary text-primary'
+                    : 'gradient-primary text-primary-foreground shadow-button'
                 }`}
               >
                 {product.id === 'free' ? 'Get Free Sample' : 'Buy Now'}

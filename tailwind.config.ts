@@ -14,8 +14,8 @@ export default {
     },
     extend: {
       fontFamily: {
-        child: ["Andika", "Comic Sans MS", "Arial Rounded MT Bold", "sans-serif"],
-        sans: ["Nunito", "system-ui", "sans-serif"],
+        child: ["Andika", "Quicksand", "Nunito", "sans-serif"],
+        sans: ["Plus Jakarta Sans", "system-ui", "sans-serif"],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -26,6 +26,7 @@ export default {
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
+          dark: "hsl(var(--primary-dark))",
         },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
@@ -69,11 +70,21 @@ export default {
           5: "hsl(var(--level-5))",
           6: "hsl(var(--level-6))",
         },
+        tint: {
+          pink: "hsl(var(--tint-pink))",
+          green: "hsl(var(--tint-green))",
+          orange: "hsl(var(--tint-orange))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+      },
+      boxShadow: {
+        card: "0 2px 8px rgba(0, 0, 0, 0.06)",
+        "card-hover": "0 4px 16px rgba(0, 0, 0, 0.1)",
+        button: "0 2px 6px rgba(232, 75, 138, 0.25)",
       },
       keyframes: {
         "accordion-down": {
@@ -94,12 +105,17 @@ export default {
           from: { transform: "translateY(20px)", opacity: "0" },
           to: { transform: "translateY(0)", opacity: "1" },
         },
+        shimmer: {
+          "0%": { backgroundPosition: "-200% 0" },
+          "100%": { backgroundPosition: "200% 0" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "bounce-in": "bounce-in 0.5s ease-out",
         "slide-up": "slide-up 0.3s ease-out",
+        shimmer: "shimmer 1.5s infinite",
       },
     },
   },
