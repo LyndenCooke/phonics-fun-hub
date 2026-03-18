@@ -11,32 +11,35 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
-    }
-
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    const supabaseUser = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
-
-    const token = authHeader.replace("Bearer ", "");
-    const { data: claimsData, error: claimsError } = await supabaseUser.auth.getClaims(token);
-    if (claimsError || !claimsData?.claims) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
+    // Try to authenticate — but allow guest checkout
+    let userId: string | null = null;
+    const authHeader = req.headers.get("Authorization");
+    if (authHeader?.startsWith("Bearer ")) {
+      const supabaseUser = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_ANON_KEY")!,
+        { global: { headers: { Authorization: authHeader } } }
+      );
+      const token = authHeader.replace("Bearer ", "");
+      const { data: claimsData } = await supabaseUser.auth.getClaims(token);
+      if (claimsData?.claims) {
+        userId = claimsData.claims.sub;
+      }
     }
-    const userId = claimsData.claims.sub;
 
-    const { product_id } = await req.json();
+    const { product_id, guest_email } = await req.json();
     if (!product_id) {
       return new Response(JSON.stringify({ error: "product_id required" }), { status: 400, headers: corsHeaders });
+    }
+
+    // Guest must provide email
+    if (!userId && !guest_email) {
+      return new Response(JSON.stringify({ error: "Email required for guest checkout" }), { status: 400, headers: corsHeaders });
     }
 
     const { data: product, error: productError } = await supabaseAdmin
@@ -49,8 +52,11 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Product not found" }), { status: 404, headers: corsHeaders });
     }
 
-    // Free sample: directly grant books
+    // Free sample: need an account
     if (product.product_type === "free_sample") {
+      if (!userId) {
+        return new Response(JSON.stringify({ error: "Please create an account to get free sample books" }), { status: 400, headers: corsHeaders });
+      }
       const { data: freeBooks } = await supabaseAdmin
         .from("books")
         .select("id")
@@ -78,7 +84,12 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Product has no Stripe price configured" }), { status: 400, headers: corsHeaders });
     }
 
-    const { data: profile } = await supabaseAdmin.from("profiles").select("email").eq("id", userId).single();
+    // Determine email for Stripe
+    let customerEmail = guest_email || null;
+    if (userId && !customerEmail) {
+      const { data: profile } = await supabaseAdmin.from("profiles").select("email").eq("id", userId).single();
+      customerEmail = profile?.email || null;
+    }
 
     const mode = product.product_type === "subscription" ? "subscription" : "payment";
 
@@ -88,14 +99,23 @@ Deno.serve(async (req) => {
       "line_items[0][quantity]": "1",
       success_url: `${req.headers.get("origin") || "https://myphonicsbooks.com"}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${req.headers.get("origin") || "https://myphonicsbooks.com"}/shop`,
-      client_reference_id: userId,
       "metadata[product_id]": product.id,
       "metadata[product_type]": product.product_type,
       currency: "gbp",
     });
 
-    if (profile?.email) {
-      body.set("customer_email", profile.email);
+    // Set client_reference_id for authenticated users
+    if (userId) {
+      body.set("client_reference_id", userId);
+    }
+
+    // For guests, store email in metadata so webhook can create account
+    if (!userId && guest_email) {
+      body.set("metadata[guest_email]", guest_email);
+    }
+
+    if (customerEmail) {
+      body.set("customer_email", customerEmail);
     }
 
     const stripeRes = await fetch("https://api.stripe.com/v1/checkout/sessions", {
@@ -113,15 +133,17 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: session.error?.message || "Stripe error" }), { status: 400, headers: corsHeaders });
     }
 
-    // Create pending purchase
-    await supabaseAdmin.from("purchases").insert({
-      user_id: userId,
-      product_id: product.id,
-      stripe_session_id: session.id,
-      amount_paid: product.price_pence,
-      currency: "gbp",
-      status: "pending",
-    });
+    // Create pending purchase (user_id may be null for guests — we'll fill it in webhook)
+    if (userId) {
+      await supabaseAdmin.from("purchases").insert({
+        user_id: userId,
+        product_id: product.id,
+        stripe_session_id: session.id,
+        amount_paid: product.price_pence,
+        currency: "gbp",
+        status: "pending",
+      });
+    }
 
     return new Response(JSON.stringify({ url: session.url }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
