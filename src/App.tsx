@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
 import Index from "./pages/Index";
 import Assessment from "./pages/Assessment";
+import PaymentSuccess from "./pages/PaymentSuccess";
 import Shop from "./pages/Shop";
 import Progress from "./pages/Progress";
 import Profile from "./pages/Profile";
@@ -26,6 +27,7 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/assess" element={<Assessment />} />
             <Route path="/shop" element={<Shop />} />
+            <Route path="/payment-success" element={<PaymentSuccess />} />
             <Route path="/progress" element={<Progress />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/auth" element={<Auth />} />

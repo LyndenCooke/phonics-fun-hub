@@ -1,9 +1,20 @@
+import { useState } from 'react';
 import Layout from '@/components/Layout';
 import { LEVELS } from '@/lib/types';
 import { useProducts } from '@/hooks/useBooks';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { BookOpen } from 'lucide-react';
+import { BookOpen, Loader2 } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 
 const levelBgs: Record<number, string> = {
   1: 'bg-level-1', 2: 'bg-level-2', 3: 'bg-level-3',
@@ -19,10 +30,75 @@ export default function Shop() {
   const { data: products, isLoading } = useProducts();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  const [guestDialog, setGuestDialog] = useState<{ open: boolean; productId: string | null }>({ open: false, productId: null });
+  const [guestEmail, setGuestEmail] = useState('');
+  const [guestLoading, setGuestLoading] = useState(false);
 
   const formatPrice = (pence: number) => {
     if (pence === 0) return 'Free';
     return `£${(pence / 100).toFixed(2)}`;
+  };
+
+  const handleCheckout = async (productId: string, guestEmailOverride?: string) => {
+    const loadingKey = guestEmailOverride ? 'guest' : productId;
+    setCheckoutLoading(loadingKey);
+    try {
+      const body: Record<string, string> = { product_id: productId };
+      if (guestEmailOverride) {
+        body.guest_email = guestEmailOverride;
+      }
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const session = (await supabase.auth.getSession()).data.session;
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
+
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-checkout-session`,
+        { method: 'POST', headers, body: JSON.stringify(body) }
+      );
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Checkout failed');
+      }
+
+      if (data.free) {
+        toast.success('Free sample books added to your library!');
+        setGuestDialog({ open: false, productId: null });
+        return;
+      }
+
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Something went wrong');
+    } finally {
+      setCheckoutLoading(null);
+      setGuestLoading(false);
+    }
+  };
+
+  const handleBuyClick = (productId: string) => {
+    if (user) {
+      handleCheckout(productId);
+    } else {
+      setGuestDialog({ open: true, productId });
+      setGuestEmail('');
+    }
+  };
+
+  const handleGuestContinue = () => {
+    if (!guestEmail || !guestEmail.includes('@')) {
+      toast.error('Please enter a valid email address');
+      return;
+    }
+    if (!guestDialog.productId) return;
+    setGuestLoading(true);
+    handleCheckout(guestDialog.productId, guestEmail);
   };
 
   return (
@@ -61,6 +137,7 @@ export default function Shop() {
               const featured = product.product_type === 'starter_bundle' || product.product_type === 'full_bundle';
               const isFree = product.product_type === 'free_sample';
               const isSub = product.product_type === 'subscription';
+              const isLoading = checkoutLoading === product.id;
 
               return (
                 <div
@@ -92,20 +169,17 @@ export default function Shop() {
                     </span>
                   </div>
                   <button
-                    onClick={() => {
-                      if (!user) {
-                        navigate('/auth');
-                        return;
-                      }
-                      // TODO: trigger checkout edge function
-                    }}
-                    className={`w-full py-3 rounded-lg font-bold text-sm transition-all duration-200 active:scale-[0.97] ${
+                    onClick={() => handleBuyClick(product.id)}
+                    disabled={!!checkoutLoading}
+                    className={`w-full py-3 rounded-lg font-bold text-sm transition-all duration-200 active:scale-[0.97] disabled:opacity-60 ${
                       isFree
                         ? 'bg-card border-2 border-primary text-primary'
                         : 'gradient-primary text-primary-foreground shadow-button'
                     }`}
                   >
-                    {isFree ? 'Get Free Sample' : 'Buy Now'}
+                    {isLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin mx-auto" />
+                    ) : isFree ? 'Get Free Sample' : 'Buy Now'}
                   </button>
                 </div>
               );
@@ -113,6 +187,72 @@ export default function Shop() {
           </div>
         )}
       </div>
+
+      {/* Guest checkout dialog */}
+      <Dialog open={guestDialog.open} onOpenChange={(open) => setGuestDialog({ open, productId: open ? guestDialog.productId : null })}>
+        <DialogContent className="max-w-sm mx-auto rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold text-foreground">How would you like to continue?</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground">
+              Sign in for the best experience, or continue as a guest.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 pt-2">
+            <button
+              onClick={() => {
+                setGuestDialog({ open: false, productId: null });
+                navigate('/auth', { state: { returnTo: '/shop' } });
+              }}
+              className="w-full py-3 rounded-xl font-bold text-sm gradient-primary text-primary-foreground shadow-button transition-all duration-200 active:scale-[0.97]"
+            >
+              Sign In
+            </button>
+            <button
+              onClick={() => {
+                setGuestDialog({ open: false, productId: null });
+                navigate('/auth', { state: { returnTo: '/shop', tab: 'register' } });
+              }}
+              className="w-full py-3 rounded-xl font-bold text-sm border-2 border-primary text-primary bg-card transition-all duration-200 active:scale-[0.97]"
+            >
+              Create Account
+            </button>
+
+            <div className="relative py-2">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-border" />
+              </div>
+              <div className="relative flex justify-center">
+                <span className="bg-background px-3 text-xs text-muted-foreground">or</span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Continue as guest</label>
+              <Input
+                type="email"
+                placeholder="Your email address"
+                value={guestEmail}
+                onChange={(e) => setGuestEmail(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleGuestContinue()}
+                className="rounded-xl"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                We'll create an account for you after purchase so you can access your books.
+              </p>
+              <button
+                onClick={handleGuestContinue}
+                disabled={guestLoading || !guestEmail}
+                className="w-full py-3 rounded-xl font-bold text-sm bg-muted text-foreground transition-all duration-200 active:scale-[0.97] disabled:opacity-60"
+              >
+                {guestLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin mx-auto" />
+                ) : 'Continue to Payment'}
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }

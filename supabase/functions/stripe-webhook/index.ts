@@ -23,7 +23,7 @@ Deno.serve(async (req) => {
       return new Response("No signature", { status: 400 });
     }
 
-    // Verify webhook signature using Stripe's raw approach
+    // Verify webhook signature
     const cryptoKey = await crypto.subtle.importKey(
       "raw",
       new TextEncoder().encode(STRIPE_WEBHOOK_SECRET),
@@ -59,21 +59,92 @@ Deno.serve(async (req) => {
 
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
-      const userId = session.client_reference_id;
+      let userId = session.client_reference_id;
       const productId = session.metadata?.product_id;
+      const guestEmail = session.metadata?.guest_email;
 
-      // Update purchase
-      await supabaseAdmin
+      // Guest checkout: auto-create account
+      if (!userId && guestEmail) {
+        // Check if user already exists with this email
+        const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers();
+        const existingUser = existingUsers?.users?.find(
+          (u: any) => u.email === guestEmail
+        );
+
+        if (existingUser) {
+          userId = existingUser.id;
+        } else {
+          // Create new user with a random password — they'll use password reset to set theirs
+          const tempPassword = crypto.randomUUID() + "Aa1!";
+          const { data: newUser, error: createError } = await supabaseAdmin.auth.admin.createUser({
+            email: guestEmail,
+            password: tempPassword,
+            email_confirm: true,
+            user_metadata: { full_name: "" },
+          });
+
+          if (createError || !newUser?.user) {
+            console.error("Failed to create guest user:", createError);
+            return new Response(JSON.stringify({ error: "Failed to create account" }), { status: 500 });
+          }
+
+          userId = newUser.user.id;
+
+          // Send password reset so they can set their own password
+          // Use the Supabase URL-based approach
+          const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+          const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+          await fetch(`${SUPABASE_URL}/auth/v1/recover`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              apikey: SUPABASE_ANON_KEY,
+            },
+            body: JSON.stringify({ email: guestEmail }),
+          });
+        }
+      }
+
+      if (!userId) {
+        console.error("No user ID resolved for session:", session.id);
+        return new Response(JSON.stringify({ received: true }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      // Create or update purchase record
+      const { data: existingPurchase } = await supabaseAdmin
         .from("purchases")
-        .update({
-          status: "completed",
-          completed_at: new Date().toISOString(),
+        .select("id")
+        .eq("stripe_session_id", session.id)
+        .single();
+
+      if (existingPurchase) {
+        await supabaseAdmin
+          .from("purchases")
+          .update({
+            status: "completed",
+            completed_at: new Date().toISOString(),
+            stripe_payment_intent_id: session.payment_intent,
+            stripe_customer_id: session.customer,
+          })
+          .eq("stripe_session_id", session.id);
+      } else {
+        // Guest purchase — create the record now
+        await supabaseAdmin.from("purchases").insert({
+          user_id: userId,
+          product_id: productId,
+          stripe_session_id: session.id,
           stripe_payment_intent_id: session.payment_intent,
           stripe_customer_id: session.customer,
-        })
-        .eq("stripe_session_id", session.id);
+          amount_paid: session.amount_total || 0,
+          currency: session.currency || "gbp",
+          status: "completed",
+          completed_at: new Date().toISOString(),
+        });
+      }
 
-      // Get product and unlock books
+      // Unlock books
       if (productId) {
         const { data: product } = await supabaseAdmin
           .from("products")
