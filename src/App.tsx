@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
 import Index from "./pages/Index";
 import Assessment from "./pages/Assessment";
+import PaymentSuccess from "./pages/PaymentSuccess";
 import Shop from "./pages/Shop";
 import Progress from "./pages/Progress";
 import Profile from "./pages/Profile";
