@@ -1,51 +1,126 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Layout from '@/components/Layout';
-import { ASSESSMENT_SOUNDS, ASSESSMENT_WORDS, ASSESSMENT_TRICKY_WORDS } from '@/lib/bookData';
+import { useAssessmentItems } from '@/hooks/useBooks';
+import { useAuth } from '@/contexts/AuthContext';
 import { LEVELS } from '@/lib/types';
-import { CheckCircle2, XCircle, ArrowRight } from 'lucide-react';
+import { CheckCircle2, XCircle } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
+import { useChildren } from '@/hooks/useBooks';
 
 type Stage = 'welcome' | 'sounds' | 'words' | 'tricky' | 'results';
+
+interface Answer {
+  item_id: string;
+  is_correct: boolean;
+}
 
 export default function Assessment() {
   const [stage, setStage] = useState<Stage>('welcome');
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [soundScores, setSoundScores] = useState<boolean[]>([]);
-  const [wordScores, setWordScores] = useState<boolean[]>([]);
-  const [trickyScores, setTrickyScores] = useState<boolean[]>([]);
+  const [answers, setAnswers] = useState<Answer[]>([]);
+  const [consecutiveWrong, setConsecutiveWrong] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const { user } = useAuth();
+  const navigate = useNavigate();
 
-  const items = stage === 'sounds' ? ASSESSMENT_SOUNDS : stage === 'words' ? ASSESSMENT_WORDS : ASSESSMENT_TRICKY_WORDS;
+  const { data: allItems, isLoading } = useAssessmentItems();
+  const { data: children } = useChildren();
+  const child = children?.[0];
+
+  // Split items by round type
+  const sounds = (allItems ?? []).filter(i => i.round_type === 'sound_recognition');
+  const words = (allItems ?? []).filter(i => i.round_type === 'word_reading');
+  const tricky = (allItems ?? []).filter(i => i.round_type === 'tricky_words');
+
+  const currentItems = stage === 'sounds' ? sounds : stage === 'words' ? words : tricky;
+  const currentItem = currentItems[currentIndex];
+
+  // Calculate scores from answers
+  const soundAnswers = answers.filter(a => sounds.some(s => s.id === a.item_id));
+  const wordAnswers = answers.filter(a => words.some(w => w.id === a.item_id));
+  const trickyAnswers = answers.filter(a => tricky.some(t => t.id === a.item_id));
 
   const handleMark = (correct: boolean) => {
-    if (stage === 'sounds') setSoundScores((s) => [...s, correct]);
-    else if (stage === 'words') setWordScores((s) => [...s, correct]);
-    else if (stage === 'tricky') setTrickyScores((s) => [...s, correct]);
+    if (!currentItem) return;
 
-    if (currentIndex < items.length - 1) {
-      setCurrentIndex((i) => i + 1);
-    } else {
+    setAnswers(prev => [...prev, { item_id: currentItem.id, is_correct: correct }]);
+
+    const newConsecutiveWrong = correct ? 0 : consecutiveWrong + 1;
+    setConsecutiveWrong(newConsecutiveWrong);
+
+    // Stop rule: 3 consecutive wrong for sounds/words (not tricky)
+    const shouldStop = stage !== 'tricky' && newConsecutiveWrong >= 3;
+
+    if (shouldStop || currentIndex >= currentItems.length - 1) {
       setCurrentIndex(0);
+      setConsecutiveWrong(0);
       if (stage === 'sounds') setStage('words');
       else if (stage === 'words') setStage('tricky');
-      else setStage('results');
+      else {
+        setStage('results');
+        saveResults();
+      }
+    } else {
+      setCurrentIndex(i => i + 1);
+    }
+  };
+
+  const saveResults = async () => {
+    if (!user) return;
+    setSaving(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/save-assessment-result`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`,
+          },
+          body: JSON.stringify({
+            child_id: child?.id || null,
+            answers,
+          }),
+        }
+      );
+    } catch {
+      toast.error('Could not save results');
+    } finally {
+      setSaving(false);
     }
   };
 
   const getRecommendedLevel = () => {
-    const soundPct = soundScores.filter(Boolean).length / soundScores.length;
-    const wordPct = wordScores.filter(Boolean).length / wordScores.length;
-    if (soundPct < 0.5) return 1;
-    if (wordPct < 0.5) return 1;
-    if (soundPct < 0.75) return 2;
-    if (wordPct < 0.75) return 3;
-    return 4;
+    // Per-level scoring
+    for (let level = 1; level <= 6; level++) {
+      const levelSounds = soundAnswers.filter(a => {
+        const item = sounds.find(s => s.id === a.item_id);
+        return item && item.target_level === level;
+      });
+      const levelWords = wordAnswers.filter(a => {
+        const item = words.find(w => w.id === a.item_id);
+        return item && item.target_level === level;
+      });
+
+      const totalAtLevel = levelSounds.length + levelWords.length;
+      if (totalAtLevel === 0) return level;
+
+      const correctAtLevel = levelSounds.filter(a => a.is_correct).length + levelWords.filter(a => a.is_correct).length;
+      const pct = correctAtLevel / totalAtLevel;
+
+      if (pct < 0.7) return level;
+    }
+    return 6;
   };
 
   const reset = () => {
     setStage('welcome');
     setCurrentIndex(0);
-    setSoundScores([]);
-    setWordScores([]);
-    setTrickyScores([]);
+    setAnswers([]);
+    setConsecutiveWrong(0);
   };
 
   const levelBgs: Record<number, string> = {
@@ -85,9 +160,10 @@ export default function Assessment() {
 
           <button
             onClick={() => setStage('sounds')}
-            className="w-full py-4 rounded-xl gradient-primary text-primary-foreground font-bold text-base shadow-button active:scale-[0.97] transition-transform duration-200"
+            disabled={isLoading}
+            className="w-full py-4 rounded-xl gradient-primary text-primary-foreground font-bold text-base shadow-button active:scale-[0.97] transition-transform duration-200 disabled:opacity-60"
           >
-            Start Assessment
+            {isLoading ? 'Loading...' : 'Start Assessment'}
           </button>
         </div>
       </Layout>
@@ -105,13 +181,13 @@ export default function Assessment() {
 
           <div className="bg-card rounded-2xl p-5 my-6 space-y-3 text-left shadow-card">
             {[
-              { label: 'Sounds', scores: soundScores },
-              { label: 'Words', scores: wordScores },
-              { label: 'Tricky Words', scores: trickyScores },
-            ].map(({ label, scores }) => (
+              { label: 'Sounds', correct: soundAnswers.filter(a => a.is_correct).length, total: soundAnswers.length },
+              { label: 'Words', correct: wordAnswers.filter(a => a.is_correct).length, total: wordAnswers.length },
+              { label: 'Tricky Words', correct: trickyAnswers.filter(a => a.is_correct).length, total: trickyAnswers.length },
+            ].map(({ label, correct, total }) => (
               <div key={label} className="flex justify-between text-sm py-1">
                 <span className="text-muted-foreground">{label}</span>
-                <span className="font-bold">{scores.filter(Boolean).length}/{scores.length}</span>
+                <span className="font-bold">{correct}/{total}</span>
               </div>
             ))}
           </div>
@@ -127,7 +203,10 @@ export default function Assessment() {
             <button onClick={reset} className="flex-1 py-3 rounded-xl bg-card border border-border font-bold text-sm shadow-card active:scale-[0.97] transition-transform duration-200">
               Retake
             </button>
-            <button className={`flex-1 py-3 rounded-xl ${levelBgs[level]} text-white font-bold text-sm shadow-sm active:scale-[0.97] transition-transform duration-200`}>
+            <button
+              onClick={() => navigate('/', { state: { filterLevel: level } })}
+              className={`flex-1 py-3 rounded-xl ${levelBgs[level]} text-white font-bold text-sm shadow-sm active:scale-[0.97] transition-transform duration-200`}
+            >
               Browse Level {level}
             </button>
           </div>
@@ -138,21 +217,19 @@ export default function Assessment() {
 
   // Assessment round
   const stageLabel = stage === 'sounds' ? 'Sound Recognition' : stage === 'words' ? 'Word Reading' : 'Tricky Words';
-  const currentItem = items[currentIndex];
-  const display = 'grapheme' in currentItem ? (currentItem as typeof ASSESSMENT_SOUNDS[0]).grapheme : (currentItem as typeof ASSESSMENT_WORDS[0]).word;
 
   return (
     <Layout>
       <div className="px-4 pt-6 pb-4 max-w-md mx-auto text-center">
         <p className="text-xs font-bold text-muted-foreground mb-1 uppercase tracking-wide">
-          {stageLabel} · {currentIndex + 1}/{items.length}
+          {stageLabel} · {currentIndex + 1}/{currentItems.length}
         </p>
 
         {/* Progress bar */}
         <div className="h-1.5 rounded-full bg-muted mb-8 overflow-hidden">
           <div
             className="h-full gradient-primary rounded-full transition-all duration-300"
-            style={{ width: `${((currentIndex + 1) / items.length) * 100}%` }}
+            style={{ width: `${((currentIndex + 1) / currentItems.length) * 100}%` }}
           />
         </div>
 
@@ -163,7 +240,9 @@ export default function Assessment() {
         </p>
 
         <div className="bg-card border border-border rounded-2xl p-12 mb-8 shadow-card">
-          <p className="font-child text-5xl font-bold text-foreground">{display}</p>
+          <p className="font-child text-5xl font-bold text-foreground">
+            {currentItem?.item_text ?? ''}
+          </p>
         </div>
 
         <p className="text-sm text-muted-foreground mb-4">Did they get it right?</p>

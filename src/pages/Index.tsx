@@ -5,15 +5,27 @@ import BookCard from '@/components/BookCard';
 import BookReader from '@/components/BookReader';
 import ComprehensionQuiz from '@/components/ComprehensionQuiz';
 import LevelFilter from '@/components/LevelFilter';
-import { useBooks, useUserBooks, useBookPages, useQuizQuestions } from '@/hooks/useBooks';
+import { useBooks, useUserBooks, useBookPages, useQuizQuestions, useProducts } from '@/hooks/useBooks';
 import { useAuth } from '@/contexts/AuthContext';
-import { BookOpen } from 'lucide-react';
+import { BookOpen, Lock, ShoppingBag, Loader2 } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 import type { Book } from '@/lib/types';
+import { LEVELS } from '@/lib/types';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 
 export default function Index() {
   const [selectedLevel, setSelectedLevel] = useState<number | null>(null);
   const [activeBookId, setActiveBookId] = useState<string | null>(null);
   const [showQuiz, setShowQuiz] = useState(false);
+  const [upsellBook, setUpsellBook] = useState<Book | null>(null);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -21,10 +33,10 @@ export default function Index() {
   const { data: userBooksData } = useUserBooks();
   const { data: pagesData } = useBookPages(activeBookId);
   const { data: quizData } = useQuizQuestions(activeBookId);
+  const { data: products } = useProducts();
 
   const userBooksMap = new Map((userBooksData ?? []).map(ub => [ub.book_id, ub]));
 
-  // Transform DB books to the Book interface used by components
   const books: Book[] = (booksData ?? []).map(b => {
     const ub = userBooksMap.get(b.id);
     return {
@@ -67,6 +79,94 @@ export default function Index() {
     sortOrder: q.sort_order,
   }));
 
+  // Find the product that includes this book's level
+  const getProductForLevel = (level: number) => {
+    return products?.find(p =>
+      p.product_type === 'level_pack' && p.levels_included.includes(level)
+    );
+  };
+
+  const handleBookSelect = (book: Book) => {
+    if (book.unlocked) {
+      setActiveBookId(book.id);
+    } else {
+      // Show upsell
+      setUpsellBook(book);
+    }
+  };
+
+  const handleGetFreeSample = async () => {
+    if (!user) {
+      navigate('/auth');
+      return;
+    }
+    setCheckoutLoading(true);
+    try {
+      const freeProduct = products?.find(p => p.product_type === 'free_sample');
+      if (!freeProduct) throw new Error('Free sample not available');
+
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-checkout-session`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`,
+          },
+          body: JSON.stringify({ product_id: freeProduct.id }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      if (data.free) {
+        toast.success('Free sample books unlocked!');
+        // Refetch user books
+        window.location.reload();
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Something went wrong');
+    } finally {
+      setCheckoutLoading(false);
+    }
+  };
+
+  const handleBuyLevel = async (level: number) => {
+    const product = getProductForLevel(level);
+    if (!product) {
+      navigate('/shop');
+      return;
+    }
+
+    if (!user) {
+      navigate('/shop');
+      return;
+    }
+
+    setCheckoutLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-checkout-session`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`,
+          },
+          body: JSON.stringify({ product_id: product.id }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      if (data.url) window.location.href = data.url;
+    } catch (err: any) {
+      toast.error(err.message || 'Something went wrong');
+    } finally {
+      setCheckoutLoading(false);
+    }
+  };
+
   if (showQuiz && activeBook && quizQuestions.length > 0) {
     return (
       <ComprehensionQuiz
@@ -96,6 +196,16 @@ export default function Index() {
       />
     );
   }
+
+  const levelBgs: Record<number, string> = {
+    1: 'bg-level-1', 2: 'bg-level-2', 3: 'bg-level-3',
+    4: 'bg-level-4', 5: 'bg-level-5', 6: 'bg-level-6',
+  };
+
+  const formatPrice = (pence: number) => {
+    if (pence === 0) return 'Free';
+    return `£${(pence / 100).toFixed(2)}`;
+  };
 
   return (
     <Layout>
@@ -131,19 +241,24 @@ export default function Index() {
           </div>
         )}
 
-        {user && (
+        {user && !userBooksData?.length && (
           <div className="mb-5 bg-card rounded-xl p-4 flex items-start gap-3 shadow-card border-l-4 border-primary">
             <div className="w-8 h-8 rounded-lg bg-tint-pink flex items-center justify-center shrink-0 mt-0.5">
               <BookOpen className="w-4 h-4 text-primary" />
             </div>
             <div>
-              <p className="text-sm font-bold text-foreground">Your free books</p>
+              <p className="text-sm font-bold text-foreground">Get your free books</p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                The first two Level 1 books are free for all users
+                The first two Level 1 books are free
               </p>
-              <span className="inline-block mt-1.5 text-[10px] font-bold bg-level-1 text-white px-2 py-0.5 rounded-full">
-                Level 1
-              </span>
+              <button
+                onClick={handleGetFreeSample}
+                disabled={checkoutLoading}
+                className="mt-2 text-xs font-bold text-primary flex items-center gap-1"
+              >
+                {checkoutLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                Unlock Free Sample →
+              </button>
             </div>
           </div>
         )}
@@ -160,13 +275,7 @@ export default function Index() {
               <BookCard
                 key={book.id}
                 book={book}
-                onSelect={(b) => {
-                  if (!b.unlocked && !user) {
-                    navigate('/auth');
-                    return;
-                  }
-                  setActiveBookId(b.id);
-                }}
+                onSelect={handleBookSelect}
               />
             ))}
           </div>
@@ -182,6 +291,70 @@ export default function Index() {
           </div>
         )}
       </div>
+
+      {/* Upsell dialog for locked books */}
+      <Dialog open={!!upsellBook} onOpenChange={(open) => !open && setUpsellBook(null)}>
+        <DialogContent className="max-w-sm mx-auto rounded-2xl">
+          {upsellBook && (() => {
+            const levelInfo = LEVELS.find(l => l.level === upsellBook.level);
+            const product = getProductForLevel(upsellBook.level);
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="text-lg font-bold text-foreground flex items-center gap-2">
+                    <Lock className="w-4 h-4 text-muted-foreground" />
+                    {upsellBook.title}
+                  </DialogTitle>
+                  <DialogDescription className="text-sm text-muted-foreground">
+                    This book is part of Level {upsellBook.level}: {levelInfo?.name}
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className={`${levelBgs[upsellBook.level]} text-white rounded-xl p-4 text-center`}>
+                  <p className="text-2xl font-extrabold">Level {upsellBook.level}</p>
+                  <p className="text-sm opacity-90">{levelInfo?.name}</p>
+                  {product && (
+                    <p className="text-lg font-extrabold mt-2">
+                      {formatPrice(product.price_pence)}
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-3 pt-2">
+                  {product && (
+                    <button
+                      onClick={() => {
+                        setUpsellBook(null);
+                        handleBuyLevel(upsellBook.level);
+                      }}
+                      disabled={checkoutLoading}
+                      className="w-full py-3 rounded-xl font-bold text-sm gradient-primary text-primary-foreground shadow-button transition-all duration-200 active:scale-[0.97] flex items-center justify-center gap-2"
+                    >
+                      {checkoutLoading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <>
+                          <ShoppingBag className="w-4 h-4" />
+                          Buy {product.name}
+                        </>
+                      )}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setUpsellBook(null);
+                      navigate('/shop');
+                    }}
+                    className="w-full py-3 rounded-xl font-bold text-sm border-2 border-primary text-primary bg-card transition-all duration-200 active:scale-[0.97]"
+                  >
+                    View All Packs
+                  </button>
+                </div>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }

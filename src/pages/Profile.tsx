@@ -108,7 +108,7 @@ export default function Profile() {
                   <span className="text-sm text-muted-foreground">{label}</span>
                   <div className="flex items-center gap-2">
                     {isLevel ? (
-                      <span className="text-xs font-bold bg-level-1 text-white px-2.5 py-0.5 rounded-full">
+                      <span className={`text-xs font-bold text-white px-2.5 py-0.5 rounded-full bg-level-${child.current_level ?? 1}`}>
                         {value}
                       </span>
                     ) : (

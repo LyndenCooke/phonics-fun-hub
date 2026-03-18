@@ -17,16 +17,15 @@ export default function BookCard({ book, onSelect }: BookCardProps) {
 
   return (
     <button
-      onClick={() => book.unlocked && onSelect(book)}
+      onClick={() => onSelect(book)}
       className={`group relative rounded-xl overflow-hidden text-left w-full transition-all duration-200 ${
         book.unlocked
           ? 'hover:shadow-card-hover hover:-translate-y-1 active:scale-[0.98] cursor-pointer shadow-card'
-          : 'cursor-not-allowed shadow-card'
+          : 'cursor-pointer shadow-card hover:shadow-card-hover'
       }`}
     >
-      {/* Cover area — styled as a book cover */}
+      {/* Cover area */}
       <div className={`${levelBg} aspect-[3/4] flex flex-col items-center justify-center p-4 relative overflow-hidden`}>
-        {/* Subtle gradient overlay for depth */}
         <div className="absolute inset-0 bg-gradient-to-b from-white/10 to-black/10" />
 
         {/* Sub-level badge */}
@@ -41,6 +40,21 @@ export default function BookCard({ book, onSelect }: BookCardProps) {
           </div>
         )}
 
+        {/* Cover image or title */}
+        {book.coverImageUrl ? (
+          <img
+            src={book.coverImageUrl}
+            alt={book.title}
+            className="absolute inset-0 w-full h-full object-cover z-[1]"
+          />
+        ) : (
+          <div className="relative z-[5] text-center px-2">
+            <p className="font-child text-base font-bold leading-tight text-white drop-shadow-md">
+              {book.title}
+            </p>
+          </div>
+        )}
+
         {/* Lock overlay — frosted glass */}
         {!book.unlocked && (
           <div className="absolute inset-0 z-10 bg-foreground/20 backdrop-blur-[2px] flex items-center justify-center">
@@ -49,13 +63,6 @@ export default function BookCard({ book, onSelect }: BookCardProps) {
             </div>
           </div>
         )}
-
-        {/* Book title on cover */}
-        <div className="relative z-[5] text-center px-2">
-          <p className="font-child text-base font-bold leading-tight text-white drop-shadow-md">
-            {book.title}
-          </p>
-        </div>
       </div>
 
       {/* Info footer */}
