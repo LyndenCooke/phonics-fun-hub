@@ -16,12 +16,12 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
-      <header className="sticky top-0 z-40 bg-card/80 backdrop-blur-lg border-b px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center">
-            <span className="text-primary-foreground font-bold text-sm">M</span>
+      <header className="sticky top-0 z-40 bg-card/90 backdrop-blur-xl border-b border-border px-4 py-3 flex items-center justify-between shadow-card">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-[10px] gradient-primary flex items-center justify-center shadow-button">
+            <span className="text-primary-foreground font-extrabold text-sm tracking-tight">M</span>
           </div>
-          <h1 className="text-lg font-bold text-foreground">
+          <h1 className="text-lg font-extrabold text-foreground tracking-tight">
             My<span className="text-primary">Phonics</span>Books
           </h1>
         </div>
@@ -33,22 +33,22 @@ export default function Layout({ children }: { children: ReactNode }) {
       </main>
 
       {/* Bottom tab bar (mobile) */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/95 backdrop-blur-lg border-t md:hidden">
-        <div className="flex items-center justify-around py-1.5 px-2">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border md:hidden">
+        <div className="flex items-center justify-around py-2 px-2">
           {navItems.map(({ path, label, icon: Icon }) => {
             const isActive = pathname === path;
             return (
               <Link
                 key={path}
                 to={path}
-                className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-all ${
+                className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl transition-all duration-200 ${
                   isActive
                     ? 'text-primary'
-                    : 'text-muted-foreground hover:text-foreground'
+                    : 'text-muted-foreground'
                 }`}
               >
-                <Icon className={`w-5 h-5 ${isActive ? 'scale-110' : ''} transition-transform`} />
-                <span className="text-[10px] font-semibold">{label}</span>
+                <Icon className={`w-5 h-5 transition-transform duration-200 ${isActive ? 'scale-110' : ''}`} strokeWidth={isActive ? 2.5 : 2} />
+                <span className={`text-[10px] ${isActive ? 'font-bold' : 'font-medium'}`}>{label}</span>
               </Link>
             );
           })}
