@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '@/components/Layout';
+import { PhonemePlayer } from '@/components/PhonemePlayer';
 import { useAssessmentItems } from '@/hooks/useBooks';
 import { useAuth } from '@/contexts/AuthContext';
 import { LEVELS } from '@/lib/types';
@@ -235,7 +236,7 @@ export default function Assessment() {
 
         <p className="text-sm text-muted-foreground mb-4">
           {stage === 'sounds'
-            ? 'Ask your child: "What sound does this make?"'
+            ? 'Ask your child: "What sound does this make?" (Tap speaker to hear)'
             : 'Ask your child to read this word aloud.'}
         </p>
 
@@ -243,6 +244,14 @@ export default function Assessment() {
           <p className="font-child text-5xl font-bold text-foreground">
             {currentItem?.item_text ?? ''}
           </p>
+          {stage === 'sounds' && currentItem?.item_text && (
+            <div className="mt-6 flex justify-center">
+              <PhonemePlayer 
+                grapheme={currentItem.item_text} 
+                size="lg"
+              />
+            </div>
+          )}
         </div>
 
         <p className="text-sm text-muted-foreground mb-4">Did they get it right?</p>
