@@ -1,105 +1,119 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Volume2, Loader2 } from 'lucide-react';
+
+// Get API key from environment
+const ELEVENLABS_API_KEY = import.meta.env.VITE_ELEVENLABS_API_KEY;
 
 // Phoneme to pronunciation mapping for ElevenLabs
 // Using phonetic approximations that produce correct sounds
 const PHONEME_MAP: Record<string, string> = {
   // Single letters - phoneme sounds (not letter names)
-  's': 'ssssss',      // /s/ not /ɛs/
-  'a': 'aaaah',       // /æ/ not /eɪ/
-  't': 'ttttt',       // /t/ not /tiː/
-  'p': 'ppppp',       // /p/ not /piː/
-  'i': 'iiiii',       // /ɪ/ not /aɪ/
-  'n': 'nnnnn',       // /n/ not /ɛn/
-  'm': 'mmmmm',       // /m/ not /ɛm/
-  'd': 'ddddd',       // /d/ not /diː/
-  'g': 'ggggg',       // /g/ not /dʒiː/
-  'o': 'ooooo',       // /ɒ/ not /oʊ/
-  'c': 'kkkkk',       // /k/ not /siː/
-  'k': 'kkkkk',       // /k/ not /keɪ/
-  'ck': 'kkkkk',      // /k/
-  'e': 'eeeee',       // /ɛ/ not /iː/
-  'u': 'uuuuu',       // /ʌ/ not /juː/
-  'r': 'rrrrr',       // /r/ not /ɑːr/
-  'h': 'hhhhh',       // /h/ not /eɪtʃ/
-  'b': 'bbbbb',       // /b/ not /biː/
-  'f': 'fffff',       // /f/ not /ɛf/
-  'l': 'lllll',       // /l/ not /ɛl/
-  'ff': 'fffff',      // /f/
-  'll': 'lllll',      // /l/
-  'ss': 'ssssss',     // /s/
-  'j': 'jjjjj',       // /dʒ/ not /dʒeɪ/
-  'v': 'vvvvv',       // /v/ not /viː/
-  'w': 'wwwww',       // /w/ not /ˈdʌbəl.juː/
-  'x': 'kkk-sssss',   // /ks/ not /ɛks/
-  'y': 'yyyyy',       // /j/ not /waɪ/
-  'z': 'zzzzz',       // /z/ not /ziː/
-  'zz': 'zzzzz',      // /z/
-  'qu': 'kwkwkw',     // /kw/
+  's': 'ssss',        // /s/ - shorter for ElevenLabs
+  'a': 'aah',         // /æ/ 
+  't': 'tuh',         // /t/
+  'p': 'puh',         // /p/
+  'i': 'ih',          // /ɪ/
+  'n': 'nnn',         // /n/
+  'm': 'mmm',         // /m/
+  'd': 'duh',         // /d/
+  'g': 'guh',         // /g/
+  'o': 'oh',          // /ɒ/
+  'c': 'kuh',         // /k/
+  'k': 'kuh',         // /k/
+  'ck': 'k',          // /k/
+  'e': 'eh',          // /ɛ/
+  'u': 'uh',          // /ʌ/
+  'r': 'rrr',         // /r/
+  'h': 'huh',         // /h/
+  'b': 'buh',         // /b/
+  'f': 'fff',         // /f/
+  'l': 'lll',         // /l/
+  'ff': 'ff',         // /f/
+  'll': 'll',         // /l/
+  'ss': 'ss',         // /s/
+  'j': 'juh',         // /dʒ/
+  'v': 'vuh',         // /v/
+  'w': 'wuh',         // /w/
+  'x': 'ks',          // /ks/
+  'y': 'yuh',         // /j/
+  'z': 'zzz',         // /z/
+  'zz': 'zz',         // /z/
+  'qu': 'kw',         // /kw/
   
   // Digraphs
-  'sh': 'shshsh',     // /ʃ/
-  'th': 'ththth',     // /θ/ or /ð/ (voiceless shown)
-  'ch': 'chchch',     // /tʃ/
-  'ng': 'ngngng',     // /ŋ/
-  'nk': 'ng-k-k-k',   // /ŋk/
+  'sh': 'shhh',       // /ʃ/
+  'th': 'th',         // /θ/ or /ð/
+  'ch': 'ch',         // /tʃ/
+  'ng': 'ng',         // /ŋ/
+  'nk': 'nk',         // /ŋk/
   
   // Set 2 sounds (long vowels)
-  'ay': 'ayyyyy',     // /eɪ/
-  'ee': 'eeeeee',     // /iː/
-  'igh': 'iiiiii',    // /aɪ/
-  'ow': 'owwwww',     // /əʊ/
-  'oo': 'oooooo',     // /uː/
-  'ar': 'arrrrr',     // /ɑː/
-  'or': 'orrrrr',     // /ɔː/
-  'air': 'airrrr',    // /eə/
-  'ir': 'irrrrr',     // /ɜː/
-  'ur': 'urrrrr',     // /ɜː/
-  'ou': 'ouuuuu',     // /aʊ/
-  'oy': 'oyyyyy',     // /ɔɪ/
+  'ay': 'ay',         // /eɪ/
+  'ee': 'ee',         // /iː/
+  'igh': 'eye',       // /aɪ/
+  'ow': 'oh',         // /əʊ/
+  'oo': 'oo',         // /uː/
+  'ar': 'ar',         // /ɑː/
+  'or': 'or',         // /ɔː/
+  'air': 'air',       // /eə/
+  'ir': 'er',         // /ɜː/
+  'ur': 'er',         // /ɜː/
+  'ou': 'ow',         // /aʊ/
+  'oy': 'oy',         // /ɔɪ/
   
   // Set 3 sounds
-  'ai': 'ayyyyy',     // /eɪ/
-  'oa': 'oahhhh',     // /əʊ/
-  'ew': 'yooooo',     // /juː/
-  'ie': 'eeeee',      // /iː/
-  'ea': 'eeeeee',     // /iː/
-  'aw': 'awwwww',     // /ɔː/
-  'are': 'areeee',    // /eə/
-  'er': 'urrrrr',     // /ɜː/
-  'ur': 'urrrrr',     // /ɜː/
-  'ow': 'owwwww',     // /aʊ/ (as in cow)
-  'oi': 'oyyyyy',     // /ɔɪ/
-  'ear': 'earrrr',    // /ɪə/
-  'ure': 'yoorrrr',   // /jʊə/
-  'tion': 'shunnnn',  // /ʃən/
+  'ai': 'ay',         // /eɪ/
+  'oa': 'oh',         // /əʊ/
+  'ew': 'yoo',        // /juː/
+  'ie': 'ee',         // /iː/
+  'ea': 'ee',         // /iː/
+  'aw': 'or',         // /ɔː/
+  'are': 'air',       // /eə/
+  'er': 'er',         // /ɜː/
+  'ow': 'ow',         // /aʊ/ (as in cow)
+  'oi': 'oy',         // /ɔɪ/
+  'ear': 'eer',       // /ɪə/
+  'ure': 'yoor',      // /jʊə/
+  'tion': 'shun',     // /ʃən/
   
   // Split digraphs (magic e)
-  'a-e': 'ayyyyy',    // /eɪ/
-  'i-e': 'iiiiii',    // /aɪ/
-  'o-e': 'ohhhhh',    // /əʊ/
-  'u-e': 'yooooo',    // /juː/
+  'a-e': 'ay',        // /eɪ/
+  'i-e': 'eye',       // /aɪ/
+  'o-e': 'oh',        // /əʊ/
+  'u-e': 'yoo',       // /juː/
   
-  // Consonant clusters (blend the sounds)
-  'st': 'ssss-tttt',
-  'sp': 'ssss-pppp',
-  'nd': 'nnnn-dddd',
-  'nt': 'nnnn-tttt',
-  'mp': 'mmmm-pppp',
-  'lk': 'llll-kkkk',
-  'sk': 'ssss-kkkk',
+  // Consonant clusters
+  'st': 'st',
+  'sp': 'sp',
+  'nd': 'nd',
+  'nt': 'nt',
+  'mp': 'mp',
+  'lk': 'lk',
+  'sk': 'sk',
 };
 
 interface PhonemePlayerProps {
   grapheme: string;
   className?: string;
   size?: 'sm' | 'md' | 'lg';
+  useElevenLabs?: boolean;
 }
 
-export function PhonemePlayer({ grapheme, className = '', size = 'md' }: PhonemePlayerProps) {
+export function PhonemePlayer({ 
+  grapheme, 
+  className = '', 
+  size = 'md',
+  useElevenLabs = true 
+}: PhonemePlayerProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasElevenLabs, setHasElevenLabs] = useState(false);
+
+  useEffect(() => {
+    // Check if ElevenLabs API key is available
+    setHasElevenLabs(!!ELEVENLABS_API_KEY && useElevenLabs);
+  }, [useElevenLabs]);
 
   const sizeClasses = {
     sm: 'w-8 h-8',
@@ -113,57 +127,118 @@ export function PhonemePlayer({ grapheme, className = '', size = 'md' }: Phoneme
     lg: 'w-8 h-8',
   };
 
+  const playWithElevenLabs = async (phonemeText: string): Promise<void> => {
+    // Voice ID for a clear UK English voice
+    const VOICE_ID = 'EXAVITQu4vr4xnSDxMaL'; // Sarah - clear British English
+    
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'audio/mpeg',
+        'Content-Type': 'application/json',
+        'xi-api-key': ELEVENLABS_API_KEY!,
+      },
+      body: JSON.stringify({
+        text: phonemeText,
+        model_id: 'eleven_monolingual_v1',
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`ElevenLabs error: ${response.status}`);
+    }
+
+    const audioBlob = await response.blob();
+    const audioUrl = URL.createObjectURL(audioBlob);
+    const audio = new Audio(audioUrl);
+    
+    return new Promise((resolve, reject) => {
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+        resolve();
+      };
+      audio.onerror = (e) => {
+        URL.revokeObjectURL(audioUrl);
+        reject(e);
+      };
+      audio.play().catch(reject);
+    });
+  };
+
+  const playWithBrowserTTS = (phonemeText: string): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      if (!('speechSynthesis' in window)) {
+        reject(new Error('Browser TTS not supported'));
+        return;
+      }
+
+      // Cancel any ongoing speech
+      window.speechSynthesis.cancel();
+      
+      const utterance = new SpeechSynthesisUtterance(phonemeText);
+      
+      // Try to get a UK English voice
+      const voices = window.speechSynthesis.getVoices();
+      const ukVoice = voices.find(v => 
+        v.lang === 'en-GB' || 
+        v.name.includes('UK') || 
+        v.name.includes('British') ||
+        v.name.includes('English')
+      );
+      if (ukVoice) {
+        utterance.voice = ukVoice;
+      }
+      
+      utterance.rate = 0.6; // Slower for clarity
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
+      
+      utterance.onend = () => resolve();
+      utterance.onerror = (e) => reject(e);
+      
+      window.speechSynthesis.speak(utterance);
+    });
+  };
+
   const playPhoneme = useCallback(async () => {
     const normalizedGrapheme = grapheme.toLowerCase().trim();
     const phonemeText = PHONEME_MAP[normalizedGrapheme] || normalizedGrapheme;
     
-    // Use browser's built-in TTS as fallback/primary
-    // For ElevenLabs integration, you would call your API here
-    if ('speechSynthesis' in window) {
-      setIsLoading(true);
-      setError(null);
-      
-      try {
-        // Cancel any ongoing speech
-        window.speechSynthesis.cancel();
-        
-        const utterance = new SpeechSynthesisUtterance(phonemeText);
-        
-        // Try to get a UK English voice
-        const voices = window.speechSynthesis.getVoices();
-        const ukVoice = voices.find(v => v.lang === 'en-GB' || v.name.includes('UK') || v.name.includes('British'));
-        if (ukVoice) {
-          utterance.voice = ukVoice;
-        }
-        
-        utterance.rate = 0.7; // Slower for clarity
-        utterance.pitch = 1.0;
-        utterance.volume = 1.0;
-        
-        utterance.onstart = () => {
-          setIsLoading(false);
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      if (hasElevenLabs) {
+        // Try ElevenLabs first
+        try {
+          await playWithElevenLabs(phonemeText);
           setIsPlaying(true);
-        };
-        
-        utterance.onend = () => {
-          setIsPlaying(false);
-        };
-        
-        utterance.onerror = () => {
-          setIsLoading(false);
-          setIsPlaying(false);
-          setError('Failed to play');
-        };
-        
-        window.speechSynthesis.speak(utterance);
-      } catch (err) {
-        setIsLoading(false);
-        setError('Failed to play');
+          setTimeout(() => setIsPlaying(false), 500);
+        } catch (elevenError) {
+          console.warn('ElevenLabs failed, falling back to browser TTS:', elevenError);
+          // Fall back to browser TTS
+          await playWithBrowserTTS(phonemeText);
+          setIsPlaying(true);
+          setTimeout(() => setIsPlaying(false), 500);
+        }
+      } else {
+        // Use browser TTS only
+        await playWithBrowserTTS(phonemeText);
+        setIsPlaying(true);
+        setTimeout(() => setIsPlaying(false), 500);
       }
-    } else {
-      setError('Audio not supported');
+    } catch (err) {
+      console.error('Failed to play phoneme:', err);
+      setError('Failed to play');
+      setIsPlaying(false);
+    } finally {
+      setIsLoading(false);
     }
-  }, [grapheme]);
+  }, [grapheme, hasElevenLabs]);
 
   return (
     <button
@@ -173,15 +248,17 @@ export function PhonemePlayer({ grapheme, className = '', size = 'md' }: Phoneme
         ${sizeClasses[size]}
         rounded-full
         flex items-center justify-center
-        bg-gradient-to-br from-pink-400 to-pink-600
-        hover:from-pink-500 hover:to-pink-700
+        ${hasElevenLabs 
+          ? 'bg-gradient-to-br from-pink-400 to-pink-600 hover:from-pink-500 hover:to-pink-700 shadow-lg shadow-pink-200' 
+          : 'bg-gradient-to-br from-blue-400 to-blue-600 hover:from-blue-500 hover:to-blue-700 shadow-lg shadow-blue-200'
+        }
         active:scale-95
         transition-all duration-200
-        shadow-lg shadow-pink-200
         disabled:opacity-70
         ${className}
       `}
-      title={`Play sound for "${grapheme}"`}
+      title={`Play "${grapheme}" sound ${hasElevenLabs ? '(ElevenLabs)' : '(Browser TTS)'}`}
+      aria-label={`Play sound for grapheme ${grapheme}`}
     >
       {isLoading ? (
         <Loader2 className={`${iconSizes[size]} text-white animate-spin`} />
@@ -192,85 +269,73 @@ export function PhonemePlayer({ grapheme, className = '', size = 'md' }: Phoneme
   );
 }
 
-// ElevenLabs API integration (for when you have API key)
-export async function playPhonemeWithElevenLabs(
-  grapheme: string, 
-  apiKey: string
-): Promise<void> {
-  const normalizedGrapheme = grapheme.toLowerCase().trim();
-  const phonemeText = PHONEME_MAP[normalizedGrapheme] || normalizedGrapheme;
-  
-  // Voice ID for a clear UK English voice
-  // You can change this to any ElevenLabs voice
-  const VOICE_ID = 'EXAVITQu4vr4xnSDxMaL'; // Sarah - clear British English
-  
-  const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`, {
-    method: 'POST',
-    headers: {
-      'Accept': 'audio/mpeg',
-      'Content-Type': 'application/json',
-      'xi-api-key': apiKey,
-    },
-    body: JSON.stringify({
-      text: phonemeText,
-      model_id: 'eleven_monolingual_v1',
-      voice_settings: {
-        stability: 0.5,
-        similarity_boost: 0.75,
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error('Failed to generate speech');
-  }
-
-  const audioBlob = await response.blob();
-  const audioUrl = URL.createObjectURL(audioBlob);
-  const audio = new Audio(audioUrl);
-  
-  return new Promise((resolve, reject) => {
-    audio.onended = () => {
-      URL.revokeObjectURL(audioUrl);
-      resolve();
-    };
-    audio.onerror = reject;
-    audio.play();
-  });
-}
-
-// Hook for ElevenLabs integration
-export function useElevenLabs(apiKey?: string) {
+// Hook for ElevenLabs integration with more control
+export function useElevenLabs() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isAvailable, setIsAvailable] = useState(false);
 
-  const playPhoneme = useCallback(async (grapheme: string) => {
-    if (!apiKey) {
-      // Fall back to browser TTS
-      const normalizedGrapheme = grapheme.toLowerCase().trim();
-      const phonemeText = PHONEME_MAP[normalizedGrapheme] || normalizedGrapheme;
-      
-      if ('speechSynthesis' in window) {
-        const utterance = new SpeechSynthesisUtterance(phonemeText);
-        utterance.rate = 0.7;
-        window.speechSynthesis.speak(utterance);
-      }
-      return;
+  useEffect(() => {
+    setIsAvailable(!!ELEVENLABS_API_KEY);
+  }, []);
+
+  const playPhoneme = useCallback(async (grapheme: string): Promise<void> => {
+    if (!ELEVENLABS_API_KEY) {
+      throw new Error('ElevenLabs API key not configured');
     }
+
+    const normalizedGrapheme = grapheme.toLowerCase().trim();
+    const phonemeText = PHONEME_MAP[normalizedGrapheme] || normalizedGrapheme;
 
     setIsLoading(true);
     setError(null);
 
     try {
-      await playPhonemeWithElevenLabs(grapheme, apiKey);
+      const VOICE_ID = 'EXAVITQu4vr4xnSDxMaL';
+      
+      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`, {
+        method: 'POST',
+        headers: {
+          'Accept': 'audio/mpeg',
+          'Content-Type': 'application/json',
+          'xi-api-key': ELEVENLABS_API_KEY,
+        },
+        body: JSON.stringify({
+          text: phonemeText,
+          model_id: 'eleven_monolingual_v1',
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`ElevenLabs error: ${response.status}`);
+      }
+
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+      
+      await new Promise<void>((resolve, reject) => {
+        audio.onended = () => {
+          URL.revokeObjectURL(audioUrl);
+          resolve();
+        };
+        audio.onerror = reject;
+        audio.play().catch(reject);
+      });
     } catch (err) {
-      setError('Failed to play sound');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to play sound';
+      setError(errorMessage);
+      throw err;
     } finally {
       setIsLoading(false);
     }
-  }, [apiKey]);
+  }, []);
 
-  return { playPhoneme, isLoading, error };
+  return { playPhoneme, isLoading, error, isAvailable };
 }
 
 export default PhonemePlayer;
