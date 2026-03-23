@@ -1,6 +1,9 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { QuizQuestion } from '@/lib/types';
-import { CheckCircle2, XCircle, ArrowRight, RotateCcw, Star } from 'lucide-react';
+import { CheckCircle2, XCircle, ArrowRight, RotateCcw, Star, Trophy } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from 'sonner';
 
 interface ComprehensionQuizProps {
   questions: QuizQuestion[];
@@ -18,6 +21,8 @@ export default function ComprehensionQuiz({
   const [showResult, setShowResult] = useState(false);
   const [score, setScore] = useState(0);
   const [finished, setFinished] = useState(false);
+  const { user } = useAuth();
+  const answersRef = useRef<{ question_id: string; selected_answer: string }[]>([]);
 
   const question = questions[currentIndex];
   const isCorrect = selected === question?.correctAnswer;
@@ -29,6 +34,39 @@ export default function ComprehensionQuiz({
     if (option === question.correctAnswer) {
       setScore((s) => s + 1);
     }
+    answersRef.current.push({
+      question_id: question.id,
+      selected_answer: option,
+    });
+  };
+
+  const saveQuizAttempt = async (finalScore: number) => {
+    if (!user) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/save-quiz-attempt`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            book_id: questions[0]?.bookId,
+            quiz_type: questions[0]?.quizType || 'comprehension',
+            answers: answersRef.current,
+          }),
+        }
+      );
+      toast.success(
+        `Quiz complete! ${finalScore}/${questions.length}`,
+        { icon: <Trophy className="w-4 h-4" /> }
+      );
+    } catch {
+      // Don't block the UI on save failure
+    }
   };
 
   const handleNext = () => {
@@ -37,8 +75,10 @@ export default function ComprehensionQuiz({
       setSelected(null);
       setShowResult(false);
     } else {
+      const finalScore = score + (isCorrect ? 0 : 0);
       setFinished(true);
-      onComplete(score + (isCorrect ? 0 : 0), questions.length);
+      saveQuizAttempt(finalScore);
+      onComplete(finalScore, questions.length);
     }
   };
 

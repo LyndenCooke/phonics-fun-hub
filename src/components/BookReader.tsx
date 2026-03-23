@@ -1,6 +1,8 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Book } from '@/lib/types';
 import { ChevronLeft, ChevronRight, X, Volume2, Bookmark, Palette } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface BookReaderProps {
   book: Book;
@@ -19,10 +21,62 @@ const fontSizes: Record<number, string> = {
 
 export default function BookReader({ book, onClose, onFinish }: BookReaderProps) {
   const [currentPage, setCurrentPage] = useState(0);
+  const { user } = useAuth();
   const pages = book.pages;
   const page = pages[currentPage];
   const levelBg = levelColors[book.level] || 'bg-primary';
   const fontSize = fontSizes[book.level] || 'text-lg';
+
+  // Save reading progress on each page turn
+  useEffect(() => {
+    if (!user || currentPage === 0) return;
+    const saveProgress = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+        await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/track-reading-activity`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({
+              book_id: book.id,
+              last_page_read: currentPage + 1,
+            }),
+          }
+        );
+      } catch {
+        // Silently fail — don't interrupt reading
+      }
+    };
+    saveProgress();
+  }, [currentPage, book.id, user]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      switch (e.key) {
+        case 'ArrowRight':
+        case ' ':
+          e.preventDefault();
+          goNext();
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          goPrev();
+          break;
+        case 'Escape':
+          e.preventDefault();
+          onClose();
+          break;
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentPage, pages.length]);
 
   const goNext = useCallback(() => {
     if (currentPage < pages.length - 1) {
@@ -118,11 +172,22 @@ export default function BookReader({ book, onClose, onFinish }: BookReaderProps)
                 {page.textContent}
               </p>
             </div>
-            <div className="flex-1 bg-muted mx-4 mb-4 rounded-2xl flex items-center justify-center border border-border">
-              <div className="text-center text-muted-foreground">
-                <Palette className="w-10 h-10 mx-auto mb-2 opacity-40" />
-                <p className="text-xs font-medium">Illustration</p>
-              </div>
+            <div className="flex-1 mx-4 mb-4 rounded-2xl overflow-hidden border border-border">
+              {page.imageUrl ? (
+                <img
+                  src={page.imageUrl}
+                  alt={`Illustration for: ${page.textContent}`}
+                  className="w-full h-full object-contain"
+                  loading="lazy"
+                />
+              ) : (
+                <div className="w-full h-full bg-muted flex items-center justify-center">
+                  <div className="text-center text-muted-foreground">
+                    <Palette className="w-10 h-10 mx-auto mb-2 opacity-40" />
+                    <p className="text-xs font-medium">Illustration</p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         );
@@ -169,10 +234,10 @@ export default function BookReader({ book, onClose, onFinish }: BookReaderProps)
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-background flex flex-col">
+    <div className="fixed inset-0 z-50 bg-background flex flex-col" role="dialog" aria-label={`Reading: ${book.title}`}>
       {/* Reader header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card shadow-card">
-        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted transition-colors duration-200">
+        <button onClick={onClose} aria-label="Close book" className="p-1.5 rounded-lg hover:bg-muted transition-colors duration-200">
           <X className="w-5 h-5" />
         </button>
         <span className="text-xs font-bold text-muted-foreground">
@@ -198,6 +263,7 @@ export default function BookReader({ book, onClose, onFinish }: BookReaderProps)
         <button
           onClick={goPrev}
           disabled={currentPage === 0}
+          aria-label="Previous page"
           className="p-2.5 rounded-xl bg-muted hover:bg-accent disabled:opacity-30 transition-all duration-200"
         >
           <ChevronLeft className="w-5 h-5" />
@@ -217,6 +283,7 @@ export default function BookReader({ book, onClose, onFinish }: BookReaderProps)
 
         <button
           onClick={goNext}
+          aria-label={currentPage === pages.length - 1 ? 'Finish book' : 'Next page'}
           className={`p-2.5 rounded-xl transition-all duration-200 ${
             currentPage === pages.length - 1
               ? `${levelBg} text-white shadow-sm`

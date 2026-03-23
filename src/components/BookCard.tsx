@@ -45,6 +45,7 @@ export default function BookCard({ book, onSelect }: BookCardProps) {
           <img
             src={book.coverImageUrl}
             alt={book.title}
+            loading="lazy"
             className="absolute inset-0 w-full h-full object-cover z-[1]"
           />
         ) : (

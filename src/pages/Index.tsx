@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import Layout from '@/components/Layout';
 import BookCard from '@/components/BookCard';
 import BookReader from '@/components/BookReader';
@@ -28,6 +29,7 @@ export default function Index() {
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const { user } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data: booksData, isLoading: booksLoading } = useBooks(selectedLevel);
   const { data: userBooksData } = useUserBooks();
@@ -167,16 +169,25 @@ export default function Index() {
     }
   };
 
+  const refetchProgress = () => {
+    queryClient.invalidateQueries({ queryKey: ['user_books'] });
+    queryClient.invalidateQueries({ queryKey: ['progress'] });
+  };
+
   if (showQuiz && activeBook && quizQuestions.length > 0) {
     return (
       <ComprehensionQuiz
         questions={quizQuestions}
         bookTitle={activeBook.title}
-        levelColor="bg-level-1"
+        levelColor={levelBgs[activeBook.level] || 'bg-level-1'}
         onComplete={(score, total) => {
-          console.log(`Quiz complete: ${score}/${total}`);
+          refetchProgress();
         }}
-        onClose={() => setShowQuiz(false)}
+        onClose={() => {
+          setShowQuiz(false);
+          setActiveBookId(null);
+          refetchProgress();
+        }}
       />
     );
   }
@@ -185,12 +196,16 @@ export default function Index() {
     return (
       <BookReader
         book={activeBook}
-        onClose={() => setActiveBookId(null)}
+        onClose={() => {
+          setActiveBookId(null);
+          refetchProgress();
+        }}
         onFinish={() => {
           if (quizQuestions.length > 0) {
             setShowQuiz(true);
           } else {
             setActiveBookId(null);
+            refetchProgress();
           }
         }}
       />
