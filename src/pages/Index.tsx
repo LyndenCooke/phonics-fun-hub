@@ -7,9 +7,10 @@ import ComprehensionQuiz from '@/components/ComprehensionQuiz';
 import LevelFilter from '@/components/LevelFilter';
 import { useBooks, useUserBooks, useBookPages, useQuizQuestions, useProducts } from '@/hooks/useBooks';
 import { useAuth } from '@/contexts/AuthContext';
-import { BookOpen, Lock, ShoppingBag, Loader2 } from 'lucide-react';
+import { BookOpen, Lock, ShoppingBag, Loader2, Trophy } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 import type { Book } from '@/lib/types';
 import { LEVELS } from '@/lib/types';
 import {
@@ -28,6 +29,7 @@ export default function Index() {
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const { user } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data: booksData, isLoading: booksLoading } = useBooks(selectedLevel);
   const { data: userBooksData } = useUserBooks();
@@ -122,10 +124,11 @@ export default function Index() {
       if (data.free) {
         toast.success('Free sample books unlocked!');
         // Refetch user books
-        window.location.reload();
+        queryClient.invalidateQueries({ queryKey: ['user_books'] });
       }
-    } catch (err: any) {
-      toast.error(err.message || 'Something went wrong');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Something went wrong';
+      toast.error(errorMessage);
     } finally {
       setCheckoutLoading(false);
     }
@@ -160,23 +163,50 @@ export default function Index() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       if (data.url) window.location.href = data.url;
-    } catch (err: any) {
-      toast.error(err.message || 'Something went wrong');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Something went wrong';
+      toast.error(errorMessage);
     } finally {
       setCheckoutLoading(false);
     }
+  };
+
+  const handleQuizComplete = async (score: number, total: number) => {
+    const percentage = Math.round((score / total) * 100);
+    const isPerfect = score === total;
+    
+    // Show success toast
+    toast.success(
+      isPerfect 
+        ? `Perfect score! ${score}/${total} - You're a reading star!` 
+        : `Quiz complete! You scored ${score}/${total}`,
+      {
+        icon: <Trophy className="w-4 h-4" />,
+        duration: 4000,
+      }
+    );
+    
+    // Refetch user books to update progress
+    await queryClient.invalidateQueries({ queryKey: ['user_books'] });
+    await queryClient.invalidateQueries({ queryKey: ['progress'] });
+    
+    // Close quiz
+    setShowQuiz(false);
+    setActiveBookId(null);
   };
 
   if (showQuiz && activeBook && quizQuestions.length > 0) {
     return (
       <ComprehensionQuiz
         questions={quizQuestions}
+        bookId={activeBook.id}
         bookTitle={activeBook.title}
-        levelColor="bg-level-1"
-        onComplete={(score, total) => {
-          console.log(`Quiz complete: ${score}/${total}`);
+        levelColor={LEVELS.find(l => l.level === activeBook.level)?.bgClass ?? 'bg-level-1'}
+        onComplete={handleQuizComplete}
+        onClose={() => {
+          setShowQuiz(false);
+          setActiveBookId(null);
         }}
-        onClose={() => setShowQuiz(false)}
       />
     );
   }
@@ -233,7 +263,7 @@ export default function Index() {
               </p>
               <button
                 onClick={() => navigate('/auth')}
-                className="mt-2 text-xs font-bold text-primary"
+                className="mt-2 text-xs font-bold text-primary hover:underline"
               >
                 Sign In / Sign Up →
               </button>
@@ -254,7 +284,7 @@ export default function Index() {
               <button
                 onClick={handleGetFreeSample}
                 disabled={checkoutLoading}
-                className="mt-2 text-xs font-bold text-primary flex items-center gap-1"
+                className="mt-2 text-xs font-bold text-primary flex items-center gap-1 hover:underline disabled:opacity-50"
               >
                 {checkoutLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
                 Unlock Free Sample →
@@ -328,7 +358,7 @@ export default function Index() {
                         handleBuyLevel(upsellBook.level);
                       }}
                       disabled={checkoutLoading}
-                      className="w-full py-3 rounded-xl font-bold text-sm gradient-primary text-primary-foreground shadow-button transition-all duration-200 active:scale-[0.97] flex items-center justify-center gap-2"
+                      className="w-full py-3 rounded-xl font-bold text-sm gradient-primary text-primary-foreground shadow-button transition-all duration-200 active:scale-[0.97] flex items-center justify-center gap-2 disabled:opacity-50"
                     >
                       {checkoutLoading ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
