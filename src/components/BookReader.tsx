@@ -1,8 +1,8 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Book } from '@/lib/types';
-import { ChevronLeft, ChevronRight, X, Volume2, Bookmark, Palette } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, Volume2, Bookmark, Palette, Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
+import { toast } from 'sonner';
 
 interface BookReaderProps {
   book: Book;
@@ -19,76 +19,130 @@ const fontSizes: Record<number, string> = {
   1: 'text-2xl', 2: 'text-xl', 3: 'text-lg', 4: 'text-base', 5: 'text-sm', 6: 'text-sm',
 };
 
+// Track if progress has been saved to avoid duplicate calls
+const savedProgressRef = new Set<string>();
+
 export default function BookReader({ book, onClose, onFinish }: BookReaderProps) {
-  const [currentPage, setCurrentPage] = useState(0);
-  const { user } = useAuth();
+  const [currentPage, setCurrentPage] = useState(book.lastPageRead || 0);
+  const [isSaving, setIsSaving] = useState(false);
+  const [imageLoading, setImageLoading] = useState<Record<number, boolean>>({});
   const pages = book.pages;
   const page = pages[currentPage];
   const levelBg = levelColors[book.level] || 'bg-primary';
   const fontSize = fontSizes[book.level] || 'text-lg';
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Save reading progress on each page turn
+  // Save progress to database
+  const saveProgress = useCallback(async (pageNumber: number, completed: boolean = false) => {
+    const cacheKey = `${book.id}-${pageNumber}-${completed}`;
+    if (savedProgressRef.has(cacheKey)) return;
+    
+    setIsSaving(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        // Not logged in, skip saving but don't error
+        return;
+      }
+
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/track-reading-activity`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            book_id: book.id,
+            page_number: pageNumber,
+            completed,
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const error = await res.json();
+        console.error('Failed to save progress:', error);
+      } else {
+        savedProgressRef.add(cacheKey);
+      }
+    } catch (err) {
+      console.error('Error saving progress:', err);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [book.id]);
+
+  // Debounced progress save
+  const debouncedSaveProgress = useCallback((pageNumber: number) => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    saveTimeoutRef.current = setTimeout(() => {
+      saveProgress(pageNumber, false);
+    }, 1000);
+  }, [saveProgress]);
+
+  // Save progress when page changes
   useEffect(() => {
-    if (!user || currentPage === 0) return;
-    const saveProgress = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return;
-        await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/track-reading-activity`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${session.access_token}`,
-            },
-            body: JSON.stringify({
-              book_id: book.id,
-              last_page_read: currentPage + 1,
-            }),
-          }
-        );
-      } catch {
-        // Silently fail — don't interrupt reading
+    if (currentPage > 0) {
+      debouncedSaveProgress(currentPage);
+    }
+    
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
       }
     };
-    saveProgress();
-  }, [currentPage, book.id, user]);
+  }, [currentPage, debouncedSaveProgress]);
 
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      switch (e.key) {
-        case 'ArrowRight':
-        case ' ':
-          e.preventDefault();
-          goNext();
-          break;
-        case 'ArrowLeft':
-          e.preventDefault();
-          goPrev();
-          break;
-        case 'Escape':
-          e.preventDefault();
-          onClose();
-          break;
+      if (e.key === 'ArrowLeft') {
+        goPrev();
+      } else if (e.key === 'ArrowRight' || e.key === ' ') {
+        e.preventDefault();
+        goNext();
+      } else if (e.key === 'Escape') {
+        onClose();
       }
     };
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [currentPage, pages.length]);
+
+  // Prevent body scroll when reader is open
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, []);
 
   const goNext = useCallback(() => {
     if (currentPage < pages.length - 1) {
       setCurrentPage((p) => p + 1);
     } else {
+      // Save completion before finishing
+      saveProgress(pages.length - 1, true);
       onFinish();
     }
-  }, [currentPage, pages.length, onFinish]);
+  }, [currentPage, pages.length, onFinish, saveProgress]);
 
   const goPrev = useCallback(() => {
     if (currentPage > 0) setCurrentPage((p) => p - 1);
   }, [currentPage]);
+
+  const handleImageLoad = (pageNum: number) => {
+    setImageLoading(prev => ({ ...prev, [pageNum]: false }));
+  };
+
+  const handleImageLoadStart = (pageNum: number) => {
+    setImageLoading(prev => ({ ...prev, [pageNum]: true }));
+  };
 
   const renderPage = () => {
     if (!page) return null;
@@ -98,6 +152,22 @@ export default function BookReader({ book, onClose, onFinish }: BookReaderProps)
         return (
           <div className={`flex-1 ${levelBg} flex flex-col items-center justify-center p-8 text-white relative overflow-hidden`}>
             <div className="absolute inset-0 bg-gradient-to-b from-white/10 to-black/15" />
+            {page.imageUrl ? (
+              <div className="relative w-full max-w-sm mb-6">
+                {imageLoading[page.pageNumber] && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white/10 rounded-2xl">
+                    <Loader2 className="w-8 h-8 animate-spin text-white/70" />
+                  </div>
+                )}
+                <img 
+                  src={page.imageUrl} 
+                  alt={`Cover illustration for ${book.title}`}
+                  className="w-full h-auto rounded-2xl shadow-2xl"
+                  onLoad={() => handleImageLoad(page.pageNumber)}
+                  onLoadStart={() => handleImageLoadStart(page.pageNumber)}
+                />
+              </div>
+            ) : null}
             <div className="relative text-center">
               <h2 className="font-child text-3xl font-bold leading-snug mb-4 drop-shadow-md">
                 {page.textContent}
@@ -172,20 +242,27 @@ export default function BookReader({ book, onClose, onFinish }: BookReaderProps)
                 {page.textContent}
               </p>
             </div>
-            <div className="flex-1 mx-4 mb-4 rounded-2xl overflow-hidden border border-border">
+            <div className="flex-1 mx-4 mb-4 rounded-2xl flex items-center justify-center border border-border overflow-hidden bg-muted">
               {page.imageUrl ? (
-                <img
-                  src={page.imageUrl}
-                  alt={`Illustration for: ${page.textContent}`}
-                  className="w-full h-full object-contain"
-                  loading="lazy"
-                />
+                <div className="relative w-full h-full">
+                  {imageLoading[page.pageNumber] && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-muted">
+                      <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                    </div>
+                  )}
+                  <img 
+                    src={page.imageUrl} 
+                    alt={`Illustration for page ${page.pageNumber}`}
+                    className="w-full h-full object-contain"
+                    onLoad={() => handleImageLoad(page.pageNumber)}
+                    onLoadStart={() => handleImageLoadStart(page.pageNumber)}
+                    loading="lazy"
+                  />
+                </div>
               ) : (
-                <div className="w-full h-full bg-muted flex items-center justify-center">
-                  <div className="text-center text-muted-foreground">
-                    <Palette className="w-10 h-10 mx-auto mb-2 opacity-40" />
-                    <p className="text-xs font-medium">Illustration</p>
-                  </div>
+                <div className="text-center text-muted-foreground">
+                  <Palette className="w-10 h-10 mx-auto mb-2 opacity-40" />
+                  <p className="text-xs font-medium">Illustration</p>
                 </div>
               )}
             </div>
@@ -234,27 +311,53 @@ export default function BookReader({ book, onClose, onFinish }: BookReaderProps)
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-background flex flex-col" role="dialog" aria-label={`Reading: ${book.title}`}>
+    <div 
+      className="fixed inset-0 z-50 bg-background flex flex-col"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Reading: ${book.title}`}
+    >
       {/* Reader header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card shadow-card">
-        <button onClick={onClose} aria-label="Close book" className="p-1.5 rounded-lg hover:bg-muted transition-colors duration-200">
+        <button 
+          onClick={onClose} 
+          className="p-1.5 rounded-lg hover:bg-muted transition-colors duration-200"
+          aria-label="Close book"
+        >
           <X className="w-5 h-5" />
         </button>
-        <span className="text-xs font-bold text-muted-foreground">
-          {currentPage + 1} / {pages.length}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-muted-foreground">
+            {currentPage + 1} / {pages.length}
+          </span>
+          {isSaving && (
+            <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+          )}
+        </div>
         <div className="flex gap-1">
-          <button className="p-1.5 rounded-lg hover:bg-muted transition-colors duration-200 opacity-40" title="Read aloud (coming soon)">
+          <button 
+            className="p-1.5 rounded-lg hover:bg-muted transition-colors duration-200 opacity-40" 
+            title="Read aloud (coming soon)"
+            aria-label="Read aloud (coming soon)"
+          >
             <Volume2 className="w-5 h-5" />
           </button>
-          <button className="p-1.5 rounded-lg hover:bg-muted transition-colors duration-200 opacity-40" title="Bookmark">
+          <button 
+            className="p-1.5 rounded-lg hover:bg-muted transition-colors duration-200 opacity-40" 
+            title="Bookmark"
+            aria-label="Bookmark"
+          >
             <Bookmark className="w-5 h-5" />
           </button>
         </div>
       </div>
 
       {/* Page content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div 
+        className="flex-1 flex flex-col overflow-hidden"
+        aria-live="polite"
+        aria-atomic="true"
+      >
         {renderPage()}
       </div>
 
@@ -263,32 +366,40 @@ export default function BookReader({ book, onClose, onFinish }: BookReaderProps)
         <button
           onClick={goPrev}
           disabled={currentPage === 0}
-          aria-label="Previous page"
           className="p-2.5 rounded-xl bg-muted hover:bg-accent disabled:opacity-30 transition-all duration-200"
+          aria-label="Previous page"
         >
           <ChevronLeft className="w-5 h-5" />
         </button>
 
         {/* Page dots */}
-        <div className="flex gap-1 max-w-[200px] overflow-hidden">
+        <div 
+          className="flex gap-1 max-w-[200px] overflow-hidden"
+          role="tablist"
+          aria-label="Page navigation"
+        >
           {pages.map((_, i) => (
-            <div
+            <button
               key={i}
+              onClick={() => setCurrentPage(i)}
               className={`w-2 h-2 rounded-full transition-all duration-200 ${
-                i === currentPage ? `${levelBg} scale-125` : 'bg-muted'
+                i === currentPage ? `${levelBg} scale-125` : 'bg-muted hover:bg-accent'
               }`}
+              aria-label={`Go to page ${i + 1}`}
+              aria-current={i === currentPage ? 'true' : undefined}
+              role="tab"
             />
           ))}
         </div>
 
         <button
           onClick={goNext}
-          aria-label={currentPage === pages.length - 1 ? 'Finish book' : 'Next page'}
           className={`p-2.5 rounded-xl transition-all duration-200 ${
             currentPage === pages.length - 1
               ? `${levelBg} text-white shadow-sm`
               : 'bg-muted hover:bg-accent'
           }`}
+          aria-label={currentPage === pages.length - 1 ? 'Finish book' : 'Next page'}
         >
           <ChevronRight className="w-5 h-5" />
         </button>
