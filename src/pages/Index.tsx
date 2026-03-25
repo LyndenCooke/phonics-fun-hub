@@ -211,7 +211,7 @@ export default function Index() {
     );
   }
 
-  if (activeBook && activeBook.pages.length > 0) {
+  if (activeBook) {
     return (
       <BookReader
         book={activeBook}
