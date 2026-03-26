@@ -1,19 +1,45 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { BOOK_CATALOG } from '@/lib/bookCatalog';
 
 export function useBooks(level?: number | null) {
   return useQuery({
     queryKey: ['books', level],
     queryFn: async () => {
-      let query = supabase
+      // Fetch whatever Supabase has
+      const { data: dbBooks } = await supabase
         .from('books')
         .select('*')
         .order('sort_order');
-      if (level) query = query.eq('level', level);
-      const { data, error } = await query;
-      if (error) throw error;
-      return data;
+
+      const dbBySubLevel = new Map((dbBooks ?? []).map(b => [b.sub_level, b]));
+
+      // Merge: DB version wins when present, otherwise use local catalog
+      let catalog = BOOK_CATALOG;
+      if (level) catalog = catalog.filter(c => c.level === level);
+
+      return catalog.map(c => {
+        const db = dbBySubLevel.get(c.sub_level);
+        if (db) return db;
+        // Synthesise a DB-shaped row from the catalog
+        return {
+          id: `local-${c.sub_level}`,
+          level: c.level,
+          sub_level: c.sub_level,
+          title: c.title,
+          slug: c.slug,
+          focus_sounds: c.focus_sounds,
+          tricky_words: c.tricky_words,
+          story_words: c.story_words,
+          cover_image_url: c.cover_image_url,
+          pdf_url: c.pdf_url,
+          page_count: c.page_count,
+          sort_order: c.sort_order,
+          is_free_sample: c.is_free_sample,
+          is_published: c.is_published,
+        };
+      });
     },
   });
 }

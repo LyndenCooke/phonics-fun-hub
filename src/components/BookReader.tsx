@@ -15,9 +15,9 @@ const levelColors: Record<number, string> = {
 
 const SWIPE_THRESHOLD = 50;
 
-/** Number of PDF pages per book: L1 = 12, L2+ = 14 */
-function getPageCount(level: number): number {
-  return level === 1 ? 12 : 14;
+/** All books are now 24 pages */
+function getPageCount(_level: number): number {
+  return 24;
 }
 
 /** Convert subLevel "L2.3" to the book-pages folder key "2_3" */
