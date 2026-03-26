@@ -49,7 +49,7 @@ export function PhonemePlayer({
           resolve();
         };
         audio.onerror = () => {
-          reject(new Error(`Sound file not found: ${fileName}`));
+          reject(new Error(`Sound file not found: ${audioUrl}`));
         };
         audio.oncanplaythrough = () => {
           setIsPlaying(true);
