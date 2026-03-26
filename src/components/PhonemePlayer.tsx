@@ -1,19 +1,11 @@
 import { useState, useCallback } from 'react';
 import { Volume2, Loader2 } from 'lucide-react';
 
-// Synthesized sounds are WAV, edge-tts sounds are MP3
+// All sounds are MP3 files in /sounds/
 // Split digraphs use underscore in filenames: a-e -> a_e
-const SYNTH_SOUNDS = new Set([
-  's','z','f','v','h','sh','th','m','n','ng',
-  'a','e','i','o','u','r','l','w','y',
-  't','p','k','c','b','d','g','ch','j',
-  'ff','ll','ss','zz','ck',
-]);
-
 function getSoundUrl(grapheme: string): string {
   const key = grapheme.replace(/-/g, '_');
-  const ext = SYNTH_SOUNDS.has(key) ? 'wav' : 'mp3';
-  return `/sounds/${key}.${ext}`;
+  return `/sounds/${key}.mp3`;
 }
 
 interface PhonemePlayerProps {
