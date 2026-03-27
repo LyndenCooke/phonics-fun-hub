@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Audio source files
+*.wav
+*.aup3
+*.aup3-shm
+*.aup3-wal

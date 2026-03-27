@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '@/components/Layout';
 import { PhonemePlayer } from '@/components/PhonemePlayer';
+import { WordPlayer } from '@/components/WordPlayer';
 import { useAuth } from '@/contexts/AuthContext';
 import { useChildren } from '@/hooks/useBooks';
 import { LEVELS } from '@/lib/types';
@@ -507,6 +508,14 @@ export default function Assessment() {
               <div className="mt-6 flex justify-center">
                 <PhonemePlayer
                   grapheme={getSoundKey(currentItem.item)}
+                  size="lg"
+                />
+              </div>
+            )}
+            {!isSoundRound && currentCategory !== 'fluency' && currentItem && (
+              <div className="mt-6 flex justify-center">
+                <WordPlayer
+                  word={currentItem.item}
                   size="lg"
                 />
               </div>
