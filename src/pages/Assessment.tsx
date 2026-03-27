@@ -70,10 +70,19 @@ const LEVEL_TEXT: Record<number, string> = {
   6: 'text-level-6',
 };
 
-// Get the sound file key for a grapheme (handles variants like "ow (blow)")
+// Get the sound file key for a grapheme (handles variants like "ow (blow)", "oo (moon)")
 function getSoundKey(grapheme: string): string {
-  // Strip parenthetical variants for sound file lookup
-  const base = grapheme.replace(/\s*\(.*\)/, '').trim();
+  // Map variant graphemes to their specific sound files
+  const VARIANT_MAP: Record<string, string> = {
+    'ow (blow)': 'ow',     // long o as in "blow"
+    'ow (cow)': 'ow',      // ow as in "cow" (same file — both say /aʊ/)
+    'oo (moon)': 'oo_moon', // long oo /uː/
+    'oo (look)': 'oo_look', // short oo /ʊ/
+  };
+  const lower = grapheme.toLowerCase().trim();
+  if (VARIANT_MAP[lower]) return VARIANT_MAP[lower];
+  // Default: strip parenthetical, replace hyphens with underscores
+  const base = lower.replace(/\s*\(.*\)/, '').trim();
   return base.replace(/-/g, '_');
 }
 
